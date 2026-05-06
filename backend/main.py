@@ -32,7 +32,6 @@ memory = ConversationBufferMemory(memory_key="chat_history", return_messages=Tru
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 class QueueCallback(BaseCallbackHandler):
-    """Capte les tokens uniquement pour le LLM auquel il est attaché."""
     def __init__(self, queue: asyncio.Queue):
         self.queue = queue
         self._loop = None
