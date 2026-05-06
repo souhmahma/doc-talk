@@ -11,7 +11,6 @@ from strawberry.subscriptions import GRAPHQL_TRANSPORT_WS_PROTOCOL
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# LangChain imports
 from langchain.callbacks.base import BaseCallbackHandler
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
