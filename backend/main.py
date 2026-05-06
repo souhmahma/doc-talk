@@ -127,7 +127,7 @@ class Subscription:
         await task
 
 
-# ---------- Query (obligatoire en GraphQL) ----------
+# ---------- Query ----------
 @strawberry.type
 class Query:
     @strawberry.field
