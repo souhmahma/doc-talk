@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+strawberry-graphql[fastapi]
+websockets
+langchain
+numpy
+langchain-community
+langchain-chroma
+chromadb
+python-multipart
+pypdf
+python-dotenv
+langchain-google-genai
