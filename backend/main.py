@@ -16,12 +16,12 @@ from langchain.memory import ConversationBufferMemory
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 
 load_dotenv()
 
 # ---------- LangChain singletons ----------
-embeddings = OpenAIEmbeddings()
+embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
 vector_store = Chroma(embedding_function=embeddings)
 memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
 
@@ -100,8 +100,8 @@ class Subscription:
         cb = QueueCallback(queue)
         cb._loop = loop
 
-        llm = ChatOpenAI(
-            model="gpt-4o-mini",
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash-lite",
             streaming=True,
             callbacks=[cb],
             temperature=0,
