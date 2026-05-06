@@ -121,7 +121,6 @@ export default function App() {
       <header style={s.header}>
         <div style={s.row}>
           <span style={s.logo}>◈ DocTalk</span>
-          <span style={s.gqlBadge}>GraphQL</span>
           {docName && (
             <span style={s.docBadge}>
               <span style={{ color: "var(--green)" }}>●</span> {docName}

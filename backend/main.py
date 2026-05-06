@@ -10,24 +10,30 @@ from strawberry.file_uploads import Upload
 from strawberry.subscriptions import GRAPHQL_TRANSPORT_WS_PROTOCOL
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# LangChain imports
 from langchain.callbacks.base import BaseCallbackHandler
-from langchain.chains import ConversationalRetrievalChain
-from langchain.memory import ConversationBufferMemory
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_openai import ChatOpenAI
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain.memory import ConversationBufferMemory
+from langchain.chains import create_history_aware_retriever, create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 load_dotenv()
 
-# ---------- LangChain singletons ----------
-embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+# ---------- Configuration Globale ----------
+embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 vector_store = Chroma(embedding_function=embeddings)
 memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
 
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 class QueueCallback(BaseCallbackHandler):
-
+    """Capte les tokens uniquement pour le LLM auquel il est attaché."""
     def __init__(self, queue: asyncio.Queue):
         self.queue = queue
         self._loop = None
@@ -40,29 +46,25 @@ class QueueCallback(BaseCallbackHandler):
         self._put(token)
 
     def on_llm_end(self, *args, **kwargs):
-        self._put(None)  # sentinel
+        self._put(None)
 
-
-# ---------- GraphQL Types ----------
+# ---------- Types GraphQL ----------
 @strawberry.type
 class UploadResult:
     filename: str
     chunks: int
     status: str
 
-
 @strawberry.type
 class TokenEvent:
     token: str
     done: bool
 
-
-# ---------- Mutation ----------
+# ---------- Mutations ----------
 @strawberry.type
 class Mutation:
     @strawberry.mutation
     async def upload_document(self, file: Upload) -> UploadResult:
-        """Index a file into ChromaDB"""
         content = await file.read()
         filename = file.filename or "document"
         suffix = ".pdf" if filename.lower().endswith(".pdf") else ".txt"
@@ -71,12 +73,15 @@ class Mutation:
             tmp.write(content)
             tmp_path = tmp.name
 
-        loader = PyPDFLoader(tmp_path) if suffix == ".pdf" else TextLoader(tmp_path)
-        docs = loader.load()
-        splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
-        chunks = splitter.split_documents(docs)
-        vector_store.add_documents(chunks)
-        os.unlink(tmp_path)
+        try:
+            loader = PyPDFLoader(tmp_path) if suffix == ".pdf" else TextLoader(tmp_path)
+            docs = loader.load()
+            splitter = RecursiveCharacterTextSplitter(chunk_size=600, chunk_overlap=100)
+            chunks = splitter.split_documents(docs)
+            vector_store.add_documents(chunks)
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
         return UploadResult(filename=filename, chunks=len(chunks), status="indexed")
 
@@ -85,36 +90,60 @@ class Mutation:
         memory.clear()
         return "ok"
 
-
-# ---------- Subscription ----------
+# ---------- Subscriptions ----------
 @strawberry.type
 class Subscription:
     @strawberry.subscription
     async def ask(self, question: str) -> AsyncGenerator[TokenEvent, None]:
-        """
-        Stream the RAG response tokens
-        """
         queue: asyncio.Queue = asyncio.Queue()
-        loop = asyncio.get_event_loop()
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = asyncio.get_event_loop()
 
         cb = QueueCallback(queue)
         cb._loop = loop
 
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash-lite",
+        llm_rewrite = ChatOpenAI(
+            openai_api_key=GROQ_API_KEY,
+            openai_api_base="https://api.groq.com/openai/v1",
+            model_name="llama-3.3-70b-versatile",
+            streaming=False,
+            temperature=0,
+        )
+
+        llm_answer = ChatOpenAI(
+            openai_api_key=GROQ_API_KEY,
+            openai_api_base="https://api.groq.com/openai/v1",
+            model_name="llama-3.3-70b-versatile",
             streaming=True,
             callbacks=[cb],
             temperature=0,
         )
-        chain = ConversationalRetrievalChain.from_llm(
-            llm=llm,
-            retriever=vector_store.as_retriever(search_kwargs={"k": 4}),
-            memory=memory,
-            verbose=False,
-        )
+
+        context_prompt = ChatPromptTemplate.from_messages([
+            ("system", "Given the chat history and the user's latest question, formulate a standalone question. Output ONLY the reformulated question and nothing else."),
+            MessagesPlaceholder("chat_history"),
+            ("human", "{input}"),
+        ])
+        
+        retriever = vector_store.as_retriever(search_kwargs={"k": 3})
+        history_aware_retriever = create_history_aware_retriever(llm_rewrite, retriever, context_prompt)
+
+        qa_prompt = ChatPromptTemplate.from_messages([
+            ("system", "You are a professional assistant. Answer the question using ONLY the provided context. If the answer isn't in the context, say you don't know.\n\nContext:\n{context}"),
+            MessagesPlaceholder("chat_history"),
+            ("human", "{input}"),
+        ])
+
+        question_answer_chain = create_stuff_documents_chain(llm_answer, qa_prompt)
+        rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
+
+        chat_history = memory.load_memory_variables({})["chat_history"]
 
         task = loop.run_in_executor(
-            None, lambda: chain.invoke({"question": question})
+            None, 
+            lambda: rag_chain.invoke({"input": question, "chat_history": chat_history})
         )
 
         while True:
@@ -124,33 +153,22 @@ class Subscription:
                 break
             yield TokenEvent(token=token, done=False)
 
-        await task
+        result = await task
+        memory.save_context({"input": question}, {"output": result["answer"]})
 
-
-# ---------- Query ----------
+# ---------- FastAPI Setup ----------
 @strawberry.type
 class Query:
     @strawberry.field
-    def health(self) -> str:
-        return "ok"
+    def health(self) -> str: return "ok"
 
+schema = strawberry.Schema(query=Query, mutation=Mutation, subscription=Subscription)
+graphql_router = GraphQLRouter(schema, subscription_protocols=[GRAPHQL_TRANSPORT_WS_PROTOCOL])
 
-# ---------- App ----------
-schema = strawberry.Schema(
-    query=Query,
-    mutation=Mutation,
-    subscription=Subscription,
-)
-
-graphql_router = GraphQLRouter(
-    schema,
-    subscription_protocols=[GRAPHQL_TRANSPORT_WS_PROTOCOL],
-)
-
-app = FastAPI(title="RAG GraphQL API")
+app = FastAPI(title="RAG Final Groq")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
