@@ -46,10 +46,10 @@ type TokenEvent {
 ## Getting Started
 
 ### Backend
-
+Make Sure to have python 3.11
 ```bash
 cd backend
-python -m venv .venv && source .venv/bin/activate
+py -3.11 -m venv venv  && source .venv/bin/activate
 pip install -r requirements.txt
 # Add your OPENAI_API_KEY to .env
 uvicorn main:app --reload
