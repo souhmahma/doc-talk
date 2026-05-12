@@ -1,6 +1,8 @@
 # doc-talk
 
-Chat with your documents in real time using a RAG pipeline, LangChain, GraphQL, and WebSocket streaming.
+[![CI Build](https://github.com/souhmahma/doc-talk/actions/workflows/ci.yml/badge.svg)](https://github.com/souhmahma/doc-talk/actions/workflows/ci.yml)
+
+> Chat with your documents in real time using a RAG pipeline, LangChain, GraphQL, and WebSocket streaming.
 
 ## Usage
 
