@@ -1,0 +1,13 @@
+name: CI Build
+on:
+  push:
+    branches: [ main ]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Images
+        run: |
+          docker build ./backend -t doc-talk-backend
+          docker build ./frontend -t doc-talk-frontend
