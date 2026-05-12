@@ -19,7 +19,11 @@ jobs:
         run: |
           docker compose up -d
           sleep 20
-          curl -f http://localhost:8000/ || (docker compose logs backend && exit 1)
+          
+          curl -f -X POST http://localhost:8000/graphql \
+            -H "Content-Type: application/json" \
+            -d '{"query": "{ health }"}' || (docker compose logs backend && exit 1)
+          
           curl -f http://localhost:80 || (docker compose logs frontend && exit 1)
 
       - name: Shutdown
