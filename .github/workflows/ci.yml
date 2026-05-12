@@ -1,13 +1,27 @@
-name: CI Build
+name: CI Verify
+
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
 jobs:
-  build:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build Images
+
+      - name: Build Services
+        run: docker compose build
+
+      - name: Start and Verify Services
         run: |
-          docker build ./backend -t doc-talk-backend
-          docker build ./frontend -t doc-talk-frontend
+          docker compose up -d
+          sleep 20
+          curl -f http://localhost:8000/ || (docker compose logs backend && exit 1)
+          curl -f http://localhost:80 || (docker compose logs frontend && exit 1)
+
+      - name: Shutdown
+        if: always()
+        run: docker compose down
