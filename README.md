@@ -8,7 +8,7 @@
 
 1. Upload a PDF or text file (button or drag & drop)
 2. Ask questions — the answer streams token by token in real time
-3. Conversation history is preserved between questions
+3. Conversation history is preserved between questions 
 
 ## Screenshots
 ![Interface de doc-talk](./screenshots/home.png)
